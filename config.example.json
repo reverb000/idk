@@ -1,0 +1,14 @@
+{
+  "backend": "ollama",
+  "model": "qwen2.5:7b",
+  "capture_width": 1400,
+  "capture_height": 1000,
+  "step_percent": 1,
+  "direction": "auto",
+  "cooldown_seconds": 0,
+  "suppress_right_click": true,
+  "tesseract_cmd": null,
+  "language": "eng",
+  "min_confidence": 40,
+  "api_timeout_seconds": 180
+}
