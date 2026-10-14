@@ -11,3 +11,11 @@ class Choice:
 class Question:
     prompt: str
     choices: tuple[Choice, ...]
+    kind: str = "choice"
+
+
+@dataclass(frozen=True)
+class Answer:
+    kind: str
+    labels: tuple[str, ...] = ()
+    text: str | None = None

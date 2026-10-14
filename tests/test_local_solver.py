@@ -11,15 +11,20 @@ from urllib.error import HTTPError, URLError
 
 from question_volume import local_solver
 from question_volume.local_solver import OllamaAnswerSolver
-from question_volume.models import Choice, Question
+from question_volume.answers import taskbar_text
+from question_volume.models import Answer, Choice, Question
 from question_volume.solver import SolverError
 
 
 def response_body(answer="B"):
+    if not isinstance(answer, dict):
+        answer = {"kind": "abstain", "labels": [], "text": None} if answer is None else {
+            "kind": "single_choice", "labels": [answer], "text": None,
+        }
     return {
         "done": True,
         "model": "qwen2.5:7b",
-        "message": {"role": "assistant", "content": json.dumps({"answer": answer})},
+        "message": {"role": "assistant", "content": json.dumps(answer)},
     }
 
 
@@ -35,10 +40,10 @@ class LocalSolverTests(unittest.TestCase):
         )
         self.solver = OllamaAnswerSolver(model="qwen2.5:7b", timeout=180)
 
-    def solve_body(self, body):
+    def solve_body(self, body, question=None):
         raw = json.dumps(body).encode() if not isinstance(body, bytes) else body
         with patch("question_volume.local_solver._open_local", return_value=io.BytesIO(raw)):
-            return self.solver.solve(self.question)
+            return self.solver.solve(question or self.question)
 
     def check_body(self, body):
         raw = json.dumps(body).encode() if not isinstance(body, bytes) else body
@@ -50,7 +55,7 @@ class LocalSolverTests(unittest.TestCase):
             "question_volume.local_solver._open_local",
             return_value=io.BytesIO(json.dumps(response_body()).encode()),
         ) as mocked:
-            self.assertEqual(self.solver.solve(self.question), "B")
+            self.assertEqual(self.solver.solve(self.question), Answer("single_choice", ("B",)))
         mocked.assert_called_once()
         request = mocked.call_args.args[0]
         self.assertEqual(request.full_url, "http://127.0.0.1:11434/api/chat")
@@ -61,7 +66,7 @@ class LocalSolverTests(unittest.TestCase):
         self.assertEqual(payload["model"], "qwen2.5:7b")
         self.assertFalse(payload["stream"])
         self.assertEqual(payload["options"]["temperature"], 0)
-        self.assertEqual(payload["options"]["num_predict"], 128)
+        self.assertGreaterEqual(payload["options"]["num_predict"], 512)
         self.assertEqual(payload["options"]["num_ctx"], 4096)
         self.assertEqual([item["role"] for item in payload["messages"]], ["system", "user"])
         instructions = payload["messages"][0]["content"]
@@ -70,15 +75,16 @@ class LocalSolverTests(unittest.TestCase):
         self.assertEqual(
             json.loads(payload["messages"][1]["content"]),
             {
+                "kind": "choice",
                 "question": "What is 2 + 2?",
                 "choices": [{"label": "A", "text": "3"}, {"label": "B", "text": "4"}],
             },
         )
         schema = payload["format"]
         self.assertEqual(schema["type"], "object")
-        self.assertEqual(schema["properties"]["answer"]["type"], ["string", "null"])
-        self.assertEqual(schema["properties"]["answer"]["enum"], ["A", "B", None])
-        self.assertEqual(schema["required"], ["answer"])
+        self.assertEqual(schema["properties"]["labels"]["type"], "array")
+        self.assertEqual(schema["properties"]["labels"]["items"]["enum"], ["A", "B"])
+        self.assertEqual(schema["required"], ["kind", "labels", "text"])
         self.assertFalse(schema["additionalProperties"])
 
     def test_abstention_returns_none(self):
@@ -94,6 +100,8 @@ class LocalSolverTests(unittest.TestCase):
             '```json\n{"answer":"B"}\n```',
             '{"answer":"B", "explanation":"because"}',
             '{"answer":"A", "answer":"B"}',
+            '{"kind":"abstain","kind":"single_choice","labels":["B"],"text":null}',
+            '{"kind":"single_choice","labels":["B"],"text":null,"explanation":"because"}',
             '{}',
             '["B"]',
             'not JSON',
@@ -113,6 +121,57 @@ class LocalSolverTests(unittest.TestCase):
         del body["done"]
         with self.assertRaises(SolverError):
             self.solve_body(body)
+
+    def test_multi_select_returns_all_labels_and_formats_by_visible_choice_order(self):
+        question = Question("Select all correct statements.", tuple(Choice(label, label) for label in "ABCDEF"))
+        for labels in (["A", "D", "F"], ["F", "D", "A"]):
+            with self.subTest(labels=labels):
+                answer = self.solve_body(response_body({"kind": "multi_select", "labels": labels, "text": None}), question)
+                self.assertEqual(answer, Answer("multi_select", tuple(labels)))
+                self.assertEqual(taskbar_text(answer, question), "1,4,6")
+
+    def test_fill_blank_returns_exact_short_answer_and_sends_question_kind(self):
+        question = Question("The chemical symbol for gold is ____.", (), "fill_blank")
+        body = response_body({"kind": "fill_blank", "labels": [], "text": "Au"})
+        self.assertEqual(self.solve_body(body, question), Answer("fill_blank", text="Au"))
+        with patch("question_volume.local_solver._open_local", return_value=io.BytesIO(json.dumps(body).encode())) as mocked:
+            self.solver.solve(question)
+        payload = json.loads(mocked.call_args.args[0].data)
+        self.assertEqual(json.loads(payload["messages"][1]["content"]), {
+            "kind": "fill_blank", "question": question.prompt, "choices": [],
+        })
+        self.assertIn("without explanations or prefixes", payload["messages"][0]["content"])
+        self.assertEqual(payload["format"]["properties"]["text"]["type"], ["string", "null"])
+        self.assertIsNone(self.solve_body(response_body(None), question))
+
+    def test_invalid_structured_answers_fail_closed_without_answer_text(self):
+        invalid = [
+            {"kind": "single_choice", "labels": [], "text": None},
+            {"kind": "single_choice", "labels": ["A", "B"], "text": None},
+            {"kind": "single_choice", "labels": ["B"], "text": "private answer"},
+            {"kind": "multi_select", "labels": ["A", "A"], "text": None},
+            {"kind": "multi_select", "labels": ["A", "C"], "text": None},
+            {"kind": "abstain", "labels": ["A"], "text": None},
+            {"kind": "abstain", "labels": [], "text": "private answer"},
+            {"kind": "fill_blank", "labels": [], "text": "private answer"},
+            {"kind": "unknown", "labels": [], "text": None},
+        ]
+        for data in invalid:
+            with self.subTest(data=data), self.assertRaises(SolverError) as caught:
+                self.solve_body(response_body(data))
+            self.assertNotIn("private", str(caught.exception))
+
+    def test_fill_blank_rejects_choice_answers_blank_long_and_control_text(self):
+        question = Question("The answer is ____.", (), "fill_blank")
+        invalid = [
+            {"kind": "single_choice", "labels": ["A"], "text": None},
+            {"kind": "fill_blank", "labels": ["A"], "text": "answer"},
+        ]
+        invalid.extend({"kind": "fill_blank", "labels": [], "text": text}
+                       for text in (None, "", " ", "x" * 2001, "a\nb", "a\tb", "a\x00b"))
+        for data in invalid:
+            with self.subTest(data=data), self.assertRaises(SolverError):
+                self.solve_body(response_body(data), question)
 
     def test_incompatible_response_models_are_rejected(self):
         for model in ("another-model:7b", "qwen2.5:7b:cloud", None, 7):
@@ -158,6 +217,11 @@ class LocalSolverTests(unittest.TestCase):
             Question(prompt="Question?", choices=(Choice(label="A", text="a"),)),
             Question(prompt="Question?", choices=(Choice(label="A", text="a"), Choice(label="A", text="b"))),
             Question(prompt="Question?", choices=(Choice(label="A", text="a"), Choice(label="B", text=" "))),
+            Question(prompt="Question?", choices=(Choice(label="AA", text="a"), Choice(label="B", text="b"))),
+            Question(prompt="Question?", choices=(Choice(label="a", text="a"), Choice(label="B", text="b"))),
+            Question(prompt="Question?", choices=self.question.choices, kind="fill_blank"),
+            Question(prompt=" ", choices=(), kind="fill_blank"),
+            Question(prompt="Question?", choices=self.question.choices, kind="unknown"),
         ]
         with patch("question_volume.local_solver._open_local") as mocked:
             for question in cases:
@@ -310,7 +374,14 @@ class LocalHttpIntegrationTests(unittest.TestCase):
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 requests.append(("POST", self.path, dict(self.headers), body))
-                self.write_json(response_body())
+                question = json.loads(body["messages"][1]["content"])
+                if question["kind"] == "fill_blank":
+                    answer = {"kind": "fill_blank", "labels": [], "text": "Au"}
+                elif question["question"].startswith("Select all"):
+                    answer = {"kind": "multi_select", "labels": ["F", "A", "D"], "text": None}
+                else:
+                    answer = {"kind": "single_choice", "labels": ["B"], "text": None}
+                self.write_json(response_body(answer))
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -329,13 +400,22 @@ class LocalHttpIntegrationTests(unittest.TestCase):
                 solver = OllamaAnswerSolver(model="qwen2.5:7b", timeout=3)
                 self.assertIsNone(solver.check_model())
                 question = Question("What is 2 + 2?", (Choice("A", "3"), Choice("B", "4")))
-                self.assertEqual(solver.solve(question), "B")
+                self.assertEqual(solver.solve(question), Answer("single_choice", ("B",)))
+                question = Question("Select all correct statements.", tuple(Choice(label, label) for label in "ABCDEF"))
+                answer = solver.solve(question)
+                self.assertEqual(answer, Answer("multi_select", ("F", "A", "D")))
+                self.assertEqual(taskbar_text(answer, question), "1,4,6")
+                question = Question("The chemical symbol for gold is ____.", (), "fill_blank")
+                self.assertEqual(solver.solve(question), Answer("fill_blank", text="Au"))
             self.assertEqual([(method, path) for method, path, _, _ in requests], [
                 ("GET", "/api/tags"), ("POST", "/api/chat"),
+                ("POST", "/api/chat"), ("POST", "/api/chat"),
             ])
             for _, _, headers, _ in requests:
                 self.assertNotIn("authorization", {key.lower() for key in headers})
             self.assertEqual(requests[1][3]["model"], "qwen2.5:7b")
+            self.assertEqual(requests[2][3]["format"]["properties"]["labels"]["items"]["enum"], list("ABCDEF"))
+            self.assertEqual(json.loads(requests[3][3]["messages"][1]["content"])["kind"], "fill_blank")
         finally:
             server.shutdown()
             server.server_close()

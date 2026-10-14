@@ -6,8 +6,9 @@ import re
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
-from .models import Question
-from .solver import SolverError, _INSTRUCTIONS, _unique_object
+from .answers import answer_schema, parse_answer
+from .models import Answer, Question
+from .solver import SolverError, _INSTRUCTIONS, _unique_object, _usable_question
 
 _LOCAL_ENDPOINT = "http://127.0.0.1:11434"
 _MAX_RESPONSE_BYTES = 256 * 1024
@@ -82,30 +83,22 @@ class OllamaAnswerSolver:
                 return
         raise SolverError(f"The local model is not downloaded. Run: ollama pull {self.model}")
 
-    def solve(self, question: Question):
-        labels = [choice.label for choice in question.choices]
-        if (not question.prompt.strip() or len(labels) < 2
-                or any(not isinstance(label, str) or len(label) != 1 or not "A" <= label <= "Z" for label in labels)
-                or len(set(labels)) != len(labels)
-                or any(not choice.text.strip() for choice in question.choices)):
+    def solve(self, question: Question) -> Answer | None:
+        if not _usable_question(question):
             return None
         result = self._request("/api/chat", {
             "model": self.model,
             "stream": False,
             "messages": [
-                {"role": "system", "content": _INSTRUCTIONS + ' Respond only with JSON: {"answer":"A"} or {"answer":null}.'},
+                {"role": "system", "content": _INSTRUCTIONS + " Respond only with the required JSON object containing kind, labels, and text."},
                 {"role": "user", "content": json.dumps({
+                    "kind": question.kind,
                     "question": question.prompt,
                     "choices": [{"label": choice.label, "text": choice.text} for choice in question.choices],
                 }, ensure_ascii=False)},
             ],
-            "format": {
-                "type": "object",
-                "properties": {"answer": {"type": ["string", "null"], "enum": labels + [None]}},
-                "required": ["answer"],
-                "additionalProperties": False,
-            },
-            "options": {"temperature": 0, "num_predict": 128, "num_ctx": 4096},
+            "format": answer_schema(question),
+            "options": {"temperature": 0, "num_predict": 768, "num_ctx": 4096},
             "keep_alive": "5m",
         })
         message = result.get("message")
@@ -119,11 +112,7 @@ class OllamaAnswerSolver:
             answer = json.loads(message["content"], object_pairs_hook=_unique_object)
         except ValueError:
             raise SolverError("Ollama returned an unreadable answer.") from None
-        if not isinstance(answer, dict) or set(answer) != {"answer"}:
-            raise SolverError("Ollama returned an invalid answer shape.")
-        selected = answer["answer"]
-        if selected is None:
-            return None
-        if not isinstance(selected, str) or selected not in labels:
-            raise SolverError("Ollama returned an unknown answer choice.")
-        return selected
+        try:
+            return parse_answer(answer, question)
+        except ValueError:
+            raise SolverError("Ollama returned an invalid or unsupported answer.") from None

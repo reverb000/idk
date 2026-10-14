@@ -2,5 +2,5 @@ mss==10.2.0
 Pillow==11.3.0
 pytesseract==0.3.13
 pynput==1.8.1; sys_platform == 'win32'
-pycaw==20251023; sys_platform == 'win32'
+comtypes==1.4.17; sys_platform == 'win32'
 keyring==25.6.0; sys_platform == 'win32'

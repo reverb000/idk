@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 from question_volume.app import check_solver, initialize, main
 from question_volume.config import Settings, configure_solver
+from question_volume.models import Answer
 
 
 class LocalConfigurationTests(unittest.TestCase):
@@ -54,24 +55,27 @@ class LocalInitializationTests(unittest.TestCase):
              patch("pytesseract.get_tesseract_version"), \
              patch("pytesseract.get_languages", return_value=["eng"]), \
              patch("question_volume.app.api_key", side_effect=AssertionError("Must not read cloud credentials")), \
-             patch("question_volume.app.WindowsVolume"), \
+             patch("question_volume.app.WindowsTaskbarDisplay") as display, \
              patch("question_volume.local_solver.OllamaAnswerSolver") as solver:
-            _, selected, _ = initialize(Settings())
+            _, selected, selected_display = initialize(Settings())
             self.assertIs(selected, solver.return_value)
+            self.assertIs(selected_display, display.return_value)
             solver.assert_called_once_with("qwen2.5:7b", timeout=180)
             selected.check_model.assert_called_once()
 
-    def test_known_answer_check_does_not_change_volume(self):
-        solver, volume = Mock(), Mock()
-        solver.solve.return_value = "B"
-        with patch("question_volume.app.initialize", return_value=(Mock(), solver, volume)), patch("builtins.print"):
+    def test_known_answer_check_does_not_open_or_change_taskbar_display(self):
+        solver, display = Mock(), Mock()
+        solver.solve.return_value = Answer("single_choice", ("B",))
+        with patch("question_volume.app.initialize", return_value=(Mock(), solver, display)), patch("builtins.print") as printed:
             check_solver(Settings())
         self.assertEqual(solver.solve.call_args.args[0].choices[1].text, "4")
-        volume.signal.assert_not_called()
+        printed.assert_called_once_with("Solver check passed: the sample question returned B (taskbar text: 2).")
+        display.start.assert_not_called()
+        display.show.assert_not_called()
 
     def test_known_answer_check_detects_wrong_response(self):
         solver = Mock()
-        solver.solve.return_value = "D"
+        solver.solve.return_value = Answer("single_choice", ("D",))
         with patch("question_volume.app.initialize", return_value=(Mock(), solver, Mock())):
             with self.assertRaises(RuntimeError):
                 check_solver(Settings())

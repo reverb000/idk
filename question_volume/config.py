@@ -61,7 +61,7 @@ class Settings:
 
 
 def configure_solver(path: Path, backend: str, model: str):
-    """Update local backend settings while preserving capture and volume preferences."""
+    """Update local backend settings while preserving capture preferences."""
     data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     if not isinstance(data, dict):
         raise ValueError("Configuration must be a JSON object.")

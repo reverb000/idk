@@ -33,7 +33,7 @@ if ($Backend -eq "openai") {
     if ($LASTEXITCODE -ne 0) { throw "API key storage failed." }
 }
 & .\.venv\Scripts\python.exe -m question_volume --check
-if ($LASTEXITCODE -ne 0) { throw "Local validation failed. Check Tesseract, audio, and Ollama/model installation (or OpenAI key)." }
+if ($LASTEXITCODE -ne 0) { throw "Local validation failed. Check Tesseract, taskbar, and Ollama/model installation (or OpenAI key)." }
 
 # Shortcuts launch pythonw directly, so starting/stopping opens no console window.
 $shell = New-Object -ComObject WScript.Shell

@@ -87,6 +87,109 @@ class ExtractQuestionTests(unittest.TestCase):
         self.assertEqual(len(question.choices), 6)
         self.assertEqual(question.choices[-1].label, "F")
 
+    def test_explicit_fill_blank_has_no_choices(self):
+        for text in ("1. The capital of France is ____.",
+                     "1. The capital of France is [blank].",
+                     "Short answer: What is the capital of France?"):
+            with self.subTest(text=text):
+                question = extract_question(ocr_data([(text, 20, 20)]), (35, 25))
+                self.assertIsNotNone(question)
+                self.assertEqual(question.kind, "fill_blank")
+                self.assertEqual(question.choices, ())
+                self.assertEqual(question.prompt, text)
+
+    def test_fill_instruction_and_question_input_marker(self):
+        for rows in (
+            [("Fill in the blank.", 20, 20), ("The capital of France is ____.", 20, 50)],
+            [("3. Fill in the blank.", 20, 20), ("The capital of France is", 20, 50)],
+            [("What is the capital of France?", 20, 20), ("Answer:", 20, 50)],
+            [("What is the capital of France?", 20, 20), ("[ ]", 20, 50)],
+        ):
+            with self.subTest(rows=rows):
+                for cursor in ((50, 25), (50, 55)):
+                    question = extract_question(ocr_data(rows), cursor)
+                    self.assertIsNotNone(question)
+                    self.assertEqual(question.kind, "fill_blank")
+                    self.assertIn("capital of France", question.prompt)
+
+    def test_nearest_of_two_fill_questions(self):
+        data = ocr_data([("1. France has capital ____.", 20, 20),
+                         ("2. Italy has capital ____.", 20, 180)])
+        self.assertIn("Italy", extract_question(data, (50, 185)).prompt)
+
+    def test_fill_prompt_excludes_unrelated_toolbar_text(self):
+        data = ocr_data([("File Edit View Settings", 20, 20),
+                         ("The capital of France is ____.", 20, 50)])
+        self.assertEqual(extract_question(data, (50, 55)).prompt, "The capital of France is ____.")
+
+    def test_wrapped_fill_stem_is_preserved(self):
+        data = ocr_data([("1. The capital of", 20, 20), ("France is ____.", 20, 45)])
+        self.assertEqual(extract_question(data, (50, 50)).prompt, "1. The capital of France is ____.")
+
+    def test_mixed_fill_and_choice_questions_remain_separate(self):
+        data = ocr_data([
+            ("1. What is two plus two?", 20, 20), ("A. Four", 20, 50), ("B. Five", 20, 80),
+            ("The capital of France is ____.", 20, 120),
+            ("What is three plus three?", 20, 200), ("A. Six", 20, 230), ("B. Seven", 20, 260),
+        ])
+        first = extract_question(data, (50, 65))
+        fill = extract_question(data, (50, 125))
+        last = extract_question(data, (50, 205))
+        self.assertEqual(first.choices[1].text, "Five")
+        self.assertEqual(fill.kind, "fill_blank")
+        self.assertEqual(fill.prompt, "The capital of France is ____.")
+        self.assertEqual(last.prompt, "What is three plus three?")
+        self.assertEqual(last.choices[0].text, "Six")
+
+    def test_side_by_side_mixed_questions_choose_nearest(self):
+        data = ocr_data([
+            ("1. France has capital ____.", 20, 20), ("2. Pick a dog?", 420, 20),
+            ("A. Wolf", 420, 50), ("B. Fox", 420, 80),
+        ])
+        self.assertEqual(extract_question(data, (40, 25)).kind, "fill_blank")
+        self.assertEqual(extract_question(data, (450, 25)).choices[0].text, "Wolf")
+
+    def test_blank_in_choice_stem_is_still_choice_question(self):
+        data = ocr_data([("The capital of France is ____.", 20, 20),
+                         ("A. Paris", 20, 50), ("B. Rome", 20, 80)])
+        self.assertEqual(extract_question(data, (30, 25)).kind, "choice")
+
+    def test_incomplete_or_malformed_choices_are_not_fill_blank(self):
+        for options in (
+            [("A. Paris", 20, 50)],
+            [("A. Paris", 20, 50), ("C. Rome", 20, 80)],
+            [("B. Rome", 20, 50), ("C. Berlin", 20, 80)],
+        ):
+            with self.subTest(options=options):
+                data = ocr_data([("The capital of France is ____.", 20, 20)] + options)
+                self.assertIsNone(extract_question(data, (30, 25)))
+
+    def test_incomplete_nearby_choice_does_not_select_neighboring_fill(self):
+        data = ocr_data([("What is two plus two?", 20, 20), ("A. Four", 20, 50),
+                         ("2. France has capital ____.", 20, 120)])
+        self.assertIsNone(extract_question(data, (40, 25)))
+        self.assertEqual(extract_question(data, (40, 125)).kind, "fill_blank")
+
+    def test_plain_questions_ui_text_and_decorative_blanks_abstain(self):
+        for rows in (
+            [("What is the capital of France?", 20, 20)],
+            [("Search settings", 20, 20), ("Answer:", 20, 50)],
+            [("____", 20, 20)],
+            [("Fill in the blank", 20, 20)],
+            [("Submit answer", 20, 20)],
+        ):
+            with self.subTest(rows=rows):
+                self.assertIsNone(extract_question(ocr_data(rows), (30, 25)))
+
+    def test_select_all_instructions_remain_in_choice_prompt(self):
+        data = ocr_data([("1. Which numbers are prime?", 20, 20),
+                         ("Select all that apply.", 20, 45),
+                         ("A. 2", 20, 80), ("B. 4", 20, 110), ("C. 5", 20, 140)])
+        question = extract_question(data, (30, 25))
+        self.assertEqual(question.kind, "choice")
+        self.assertIn("Select all that apply.", question.prompt)
+        self.assertEqual([choice.label for choice in question.choices], ["A", "B", "C"])
+
     def test_lowercase_ocr_labels_are_normalized(self):
         data = ocr_data([("Choose an answer?", 20, 20), ("a. First", 20, 50),
                          ("b. Second", 20, 80), ("c. Third", 20, 110)])
@@ -152,6 +255,32 @@ class ExtractQuestionTests(unittest.TestCase):
         image = MagicMock(width=500, height=300)
         with patch.dict("sys.modules", {"pytesseract": tesseract}):
             self.assertIsNone(OCRReader().read(image, (30, 30)))
+        self.assertEqual(tesseract.image_to_data.call_count, 2)
+
+    def test_reader_checks_fill_candidate_again_for_missing_nearby_choices(self):
+        tesseract = MagicMock()
+        tesseract.Output.DICT = "dict"
+        sparse = ocr_data([("1. France has capital ____.", 20, 100)])
+        complete = ocr_data([("2. What is two plus two?", 40, 40),
+                             ("A. Four", 40, 100), ("B. Five", 40, 160),
+                             ("1. France has capital ____.", 40, 280)])
+        complete["height"] = [32] * len(complete["text"])
+        tesseract.image_to_data.side_effect = [sparse, complete]
+        image = MagicMock(width=500, height=300)
+        with patch.dict("sys.modules", {"pytesseract": tesseract}):
+            result = OCRReader().read(image, (30, 25))
+        self.assertEqual(tesseract.image_to_data.call_count, 2)
+        self.assertEqual(result.kind, "choice")
+        self.assertEqual(result.choices[0].text, "Four")
+
+    def test_reader_preserves_clear_fill_if_block_pass_loses_blank(self):
+        tesseract = MagicMock()
+        tesseract.Output.DICT = "dict"
+        tesseract.image_to_data.side_effect = [ocr_data([("1. France has capital ____.", 20, 20)]), {}]
+        image = MagicMock(width=500, height=300)
+        with patch.dict("sys.modules", {"pytesseract": tesseract}):
+            result = OCRReader().read(image, (30, 25))
+        self.assertEqual(result.kind, "fill_blank")
         self.assertEqual(tesseract.image_to_data.call_count, 2)
 
 

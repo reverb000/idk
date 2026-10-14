@@ -114,7 +114,7 @@ def install(root: Path, backend: str, model: str | None) -> None:
     )
     if backend == "openai":
         run_step([str(python), "-m", "question_volume", "--set-api-key"], root)
-    print("Checking OCR, audio, and solver prerequisites...", flush=True)
+    print("Checking OCR, taskbar, and solver prerequisites...", flush=True)
     run_step([str(python), "-m", "question_volume", "--check"], root)
     print("Creating start and stop shortcuts...", flush=True)
     # Use the venv interpreter so COM dependencies need not be installed globally.
