@@ -1,9 +1,11 @@
 import argparse
 import getpass
+import importlib
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import queue
+import re
 import sys
 import threading
 
@@ -18,6 +20,16 @@ from .taskbar_input import taskbar_point
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = logging.getLogger("question_volume")
+
+
+def missing_module_message(error):
+    """Include the module name without logging an arbitrary exception payload."""
+    name = error.name
+    if (not isinstance(name, str) or len(name) > 200
+            or re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", name, re.ASCII) is None):
+        name = "unknown"
+    return (f"Missing Python module '{name}'. Double-click repair.cmd in the extracted "
+            "program folder, then start.lnk. Double-click diagnose.cmd for details.")
 
 
 def configure_logging(path):
@@ -119,6 +131,8 @@ def listen(settings, reader, solver, display, state):
                 from .solver import SolverError
                 if isinstance(error, SolverError):
                     LOG.error("%s", error)
+                elif isinstance(error, ModuleNotFoundError):
+                    LOG.error("%s", missing_module_message(error))
                 else:
                     LOG.error("Question processing failed (%s).",
                               type(error).__name__)
@@ -178,6 +192,10 @@ def listen(settings, reader, solver, display, state):
 
 
 def check(settings):
+    # Test the capture and listener dependencies too, before a real click needs them.
+    # DPI awareness is established by main() before importing the mouse library.
+    for module in ("mss", "PIL.Image", "pynput.mouse"):
+        importlib.import_module(module)
     _, _, display = initialize(settings)
     try:
         display.start()
@@ -250,7 +268,9 @@ def main(argv=None):
         return 0
     except Exception as error:
         # Only known local validation messages are shown; external errors can include sensitive data.
-        if isinstance(error, (ValueError, RuntimeError)):
+        if isinstance(error, ModuleNotFoundError):
+            message = missing_module_message(error)
+        elif isinstance(error, (ValueError, RuntimeError)):
             message = str(error)
         else:
             message = f"Startup failed ({type(error).__name__}); check installation and configuration."

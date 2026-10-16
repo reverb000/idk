@@ -69,6 +69,9 @@ continue to work normally.
    the text in an empty part of the taskbar. Double-click `stop.lnk` when
    finished. Starting twice does not create duplicate listeners.
 
+`start.pyw` and `stop.pyw` also select this folder's installed Python environment,
+even if Windows associates Python files with another Python installation.
+
 If you prefer to install manually, run these commands in an interactive
 PowerShell prompt. They do not run a PowerShell script:
 
@@ -210,6 +213,17 @@ Ollama not running, or a model that has not been downloaded. `--check` verifies
 local prerequisites without displaying an answer; `--check-solver` also asks a
 known-answer question. A successful real right-click is the end-to-end check.
 See [local-model troubleshooting](LOCAL_MODEL_SETUP.md#troubleshooting).
+
+For a **missing Python module** or a silent startup failure, double-click
+**diagnose.cmd** in the extracted program folder. It keeps a terminal open,
+prints the Python interpreter and missing module names, and checks local
+prerequisites without capturing the screen or asking the model a question.
+If a Python dependency is missing, stop the app and double-click **repair.cmd**
+to reinstall the required Python packages in this folder's `.venv` and rerun
+diagnostics. Repair preserves `config.json` and the downloaded Ollama model.
+If `.venv` does not exist, run **setup.cmd** first. Early launch failures are
+recorded in `%LOCALAPPDATA%\QuestionVolume\startup.log`; normal application
+status and errors are in `app.log`.
 
 If an answer is saved but nothing appears on the taskbar, first leave
 full-screen mode and ensure **Automatically hide the taskbar** is off. The

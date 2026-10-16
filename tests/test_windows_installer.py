@@ -15,8 +15,12 @@ class WindowsInstallerTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory(prefix="windows installer ")
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
-        for name in ("requirements.txt", "start.pyw", "stop.pyw"):
-            (self.root / name).touch()
+        for name in ("requirements.txt", "start.pyw", "stop.pyw", "windows_launcher.py",
+                     "question_volume/__init__.py", "question_volume/__main__.py",
+                     "question_volume/app.py"):
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
         self.python = self.root / ".venv" / "Scripts" / "python.exe"
 
     def existing_environment(self):
@@ -145,6 +149,13 @@ class WindowsInstallerTests(unittest.TestCase):
 
     def test_missing_extracted_files_stops_before_environment_changes(self):
         (self.root / "requirements.txt").unlink()
+        with patch.object(installer, "prepare_environment") as prepare:
+            with self.assertRaisesRegex(RuntimeError, "Extract the whole program"):
+                installer.install(self.root, "ollama", None)
+        prepare.assert_not_called()
+
+    def test_missing_package_stops_before_installing_dependencies(self):
+        (self.root / "question_volume" / "app.py").unlink()
         with patch.object(installer, "prepare_environment") as prepare:
             with self.assertRaisesRegex(RuntimeError, "Extract the whole program"):
                 installer.install(self.root, "ollama", None)

@@ -1,4 +1,4 @@
-"""Launch with the virtual environment's pythonw.exe; no console or tray window."""
-from question_volume.app import main
+"""Launch this folder's virtual environment without opening a console."""
+from windows_launcher import launch
 
-raise SystemExit(main())
+raise SystemExit(launch())

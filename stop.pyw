@@ -1,3 +1,3 @@
-from question_volume.app import main
+from windows_launcher import launch
 
-raise SystemExit(main(["--stop"]))
+raise SystemExit(launch(("--stop",)))

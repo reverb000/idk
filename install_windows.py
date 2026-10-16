@@ -97,7 +97,9 @@ def create_shortcuts(root: Path) -> None:
 
 
 def install(root: Path, backend: str, model: str | None) -> None:
-    for required in ("requirements.txt", "start.pyw", "stop.pyw"):
+    for required in ("requirements.txt", "start.pyw", "stop.pyw", "windows_launcher.py",
+                     "question_volume/__init__.py", "question_volume/__main__.py",
+                     "question_volume/app.py"):
         if not (root / required).is_file():
             raise RuntimeError(
                 f"Missing {required}. Extract the whole program before running this installer."

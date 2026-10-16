@@ -147,6 +147,18 @@ local workflow can run offline. It has no per-question API charges.
 
 ## Troubleshooting
 
+**`ModuleNotFoundError` or nothing happens when starting:** Double-click
+**diagnose.cmd** in the extracted folder to see the exact missing module and
+the Python interpreter being used. If a Python package is missing, stop the
+app, then double-click **repair.cmd** to reinstall its dependencies and run
+the checks again. This preserves your configuration and downloaded model.
+If the Python environment is missing, run **setup.cmd** first. Start with
+**start.lnk** or **start.pyw**; both use this program folder's `.venv` rather
+than whichever Python happens to be your Windows default. Check
+`%LOCALAPPDATA%\QuestionVolume\startup.log` for launch failures and `app.log`
+for application errors. Diagnostics and repair use a visible terminal;
+normal use stays in the background.
+
 **`ollama` is not recognized:** Reopen PowerShell after installing Ollama.
 Confirm that the Windows app installed successfully.
 
