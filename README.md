@@ -1,10 +1,13 @@
-# Question Taskbar — Windows 10/11
+# Question Taskbar — Windows 11
 
 Right-click near a question to read it with local OCR, ask a local model through
-**Ollama**, and display the answer in a Windows taskbar button:
+**Ollama**, and display the answer in an empty part of the Windows taskbar:
 
-- Single choice: A → `1`, B → `2`, C → `3`, and so on through Z.
-- Multiple selections: A, D, and F → `1,4,6`.
+- Single choice: A → `1`, B → `2`, C → `3`, and so on through Z → `26`.
+- Multiple selections: any subset of the visible choices, listed in choice
+  order and separated by commas. For example, B, E, and Z → `2,5,26`;
+  A, D, and F → `1,4,6`. These are examples, not a fixed list of supported
+  selections.
 - Fill in the blank: the model's answer text, without a label or prefix.
 
 This edition replaces the old volume signaling. It does not change your volume.
@@ -14,19 +17,20 @@ RAM. It requires no OpenAI account, API key, or per-question payment.
 Windows instructions. A local model is separate from ChatGPT and its answers
 can differ.
 
-**Windows 11 hides taskbar labels by default.** Open **Settings →
-Personalization → Taskbar → Taskbar behaviors → Combine taskbar buttons and
-hide labels**, and select **Never**. If you use additional displays, set the
-corresponding option for other taskbars as well. The program does not change
-these settings for you. Windows controls button width, so a long answer may
-be shortened with an ellipsis. The complete answer is also saved as UTF-8 text
-to `%LOCALAPPDATA%\QuestionVolume\answer.txt`.
+The answer is a small, click-through text overlay, with no taskbar app button
+or new pinned icon. It measures empty taskbar space and leaves a buffer around
+Start, Search, weather/widgets, pinned and running applications, and the
+system tray and clock. It does not move those controls or change Windows
+settings. Long answers scroll within the available gap. The complete answer
+is also saved as UTF-8 text to
+`%LOCALAPPDATA%\QuestionVolume\answer.txt`.
 
-The program uses a minimized taskbar button with a changing caption. During
-normal operation it opens no foreground application window, console, or answer
-popup and does not take focus. While running, it consumes right-clicks so
-context menus do not obscure questions. Double-click `stop.lnk` to restore
-ordinary right-click behavior. Left-clicks, scrolling, and keyboard input
+During normal operation it opens no foreground application window, console,
+or answer popup and does not take focus. Mouse clicks pass through the answer
+overlay. While running, it consumes question-area right-clicks so
+context menus do not obscure questions. Taskbar right-clicks pass through,
+preserving pinned-app menus, Search, widgets, and tray controls. Double-click
+`stop.lnk` to restore ordinary right-click behavior everywhere. Left-clicks, scrolling, and keyboard input
 continue to work normally.
 
 ## Install on your Windows computer
@@ -48,8 +52,9 @@ continue to work normally.
    ```
    The model download is about 4.7 GB. Keep Ollama running; its desktop app
    runs a local server in the background.
-4. Extract the whole ZIP, then double-click **setup.cmd** inside the extracted
-   folder. It runs the Python installer and leaves the terminal open so you
+4. Download the [Windows ZIP](https://github.com/reverb000/idk/archive/refs/heads/codex/windows-question-taskbar.zip)
+   and extract it, then double-click **setup.cmd** inside the extracted folder.
+   It runs the Python installer and leaves the terminal open so you
    can read its result. Alternatively, use Command Prompt or PowerShell:
    ```cmd
    py -3.14 install_windows.py
@@ -59,10 +64,10 @@ continue to work normally.
    and creates `start.lnk` and `stop.lnk`. No API key or audio device is needed.
    Installation uses a visible terminal. No PowerShell script execution or
    execution-policy change is needed.
-5. Enable taskbar labels as described above, then double-click `start.lnk`.
+5. Double-click `start.lnk`.
    Right-click near the question text, wait for the model response, and read
-   the taskbar button's text. Double-click `stop.lnk` when finished. Starting
-   twice does not create duplicate listeners.
+   the text in an empty part of the taskbar. Double-click `stop.lnk` when
+   finished. Starting twice does not create duplicate listeners.
 
 If you prefer to install manually, run these commands in an interactive
 PowerShell prompt. They do not run a PowerShell script:
@@ -139,12 +144,34 @@ record processing status. If you select the optional OpenAI backend, recognized 
 to OpenAI with `store=false`; OpenAI's applicable API data policies still apply.
 
 A new accepted click clears the previous answer and displays a processing
-indicator. Only the newest question's result is displayed; an older in-flight
-answer cannot overwrite it. At most five screen captures can wait in the
+indicator when a suitable taskbar gap is available. Only the newest question's
+result is displayed; an older in-flight answer cannot overwrite it. At most
+five screen captures can wait in the
 queue. Rapid clicks that exceed the queue are skipped and recorded in the
 log. OCR failure, uncertain selection, model abstention, or a solver error
 clears the answer, including the local answer file. Stopping discards pending
 work. There is no automatic start at Windows login.
+
+Taskbar placement uses Windows UI Automation and native child-window bounds
+to measure occupied areas. It refreshes about every 200 milliseconds and
+moves or hides the overlay as the layout changes. It draws only when it can
+identify an empty horizontal gap at least 56 device-independent pixels wide,
+after leaving a margin around neighboring controls. If no readable gap exists,
+the measurements are incomplete or stale, or a full-screen application is
+active, the overlay stays hidden. The answer file remains available even when
+nothing can be drawn safely.
+
+The overlay also stays hidden whenever **Automatically hide the taskbar** is
+enabled, including while the taskbar is visible on hover. Windows does not
+provide enough reliable information about its auto-hide animation and clipping
+to place the overlay safely. Leave this option off under **Settings →
+Personalization → Taskbar → Taskbar behaviors** if you want the answer overlay.
+The program does not change it automatically.
+
+This is a standalone overlay; it does not resize or reparent the Windows
+taskbar. Windows does not provide a reserved area for it, so layout changes
+can happen between measurements. Click-through behavior ensures the overlay
+does not intercept mouse input, even during a layout change.
 
 OCR and model answers can be wrong, particularly for equations, diagrams,
 clipped text, and unusual layouts. This implementation sends text only, so
@@ -164,7 +191,7 @@ If you reuse an older configuration with a 30-second timeout, increase
 | `backend` | `ollama` | `ollama` for local inference, or `openai` for the optional cloud API. |
 | `model` | `qwen2.5:7b` | Downloaded Ollama model name; for OpenAI, a model supporting Responses structured outputs. |
 | `capture_width`, `capture_height` | `1400`, `1000` | Capture area in physical pixels, clamped to the cursor's monitor. |
-| `suppress_right_click` | `true` | Consume right-clicks. Set `false` to retain context menus, which may obscure text. |
+| `suppress_right_click` | `true` | Consume question-area right-clicks. Taskbar events always pass through. Set `false` to retain other context menus. |
 | `cooldown_seconds` | `0` | Optional minimum interval between triggers. |
 | `tesseract_cmd` | `null` | Auto-detect Tesseract; override with its full executable path. |
 | `language` | `eng` | Installed Tesseract language code. |
@@ -184,11 +211,15 @@ local prerequisites without displaying an answer; `--check-solver` also asks a
 known-answer question. A successful real right-click is the end-to-end check.
 See [local-model troubleshooting](LOCAL_MODEL_SETUP.md#troubleshooting).
 
-If the taskbar shows only an icon, enable **Never** for **Combine taskbar
-buttons and hide labels**. This is a Windows setting; taskbar captions cannot
-force text to appear while Windows hides labels. Long answers may be cut off
-by Windows even with labels enabled. Open `answer.txt` to read the full text.
-On Windows 10, the similar setting is **Combine taskbar buttons → Never**.
+If an answer is saved but nothing appears on the taskbar, first leave
+full-screen mode and ensure **Automatically hide the taskbar** is off. The
+overlay remains hidden while that option is enabled, even when the taskbar
+appears on hover. A crowded taskbar or unreliable Windows layout measurements
+also cause the overlay to hide intentionally;
+it will not draw over Search, weather, app buttons, or the tray to make room.
+Open `%LOCALAPPDATA%\QuestionVolume\answer.txt` to read the complete answer.
+Long text scrolls inside the available gap, so it may take time to see it all.
+No taskbar label or grouping settings need to be changed.
 
 For the OpenAI backend, also check API credentials and billing. `--check`
 does not authenticate an OpenAI key remotely; `--check-solver` makes an API
@@ -206,9 +237,12 @@ Linux cloud environment.
 ```
 
 Tests cover OCR layout selection, solver responses and failures, capture
-geometry, stop behavior, answer formatting, and taskbar adapter behavior.
+geometry, stop behavior, all-letter and multiselect answer formatting, and
+taskbar adapter behavior, including synthetic occupied-area geometry.
 A real Tesseract image test runs when its dependencies and a suitable font are
 available. Solver calls and Windows desktop APIs are mocked in automated
-checks. Windows global mouse hooks, taskbar labels and focus behavior, and
-Credential Manager require validation on a real Windows desktop. The actual
-Ollama model is checked separately with `--check-solver` on your PC.
+checks. Native UI Automation, overlay placement and scrolling on a live
+Windows taskbar, global mouse hooks, focus behavior, and Credential Manager
+require validation on a real Windows desktop. These Linux checks do not
+establish native Windows placement behavior. The actual Ollama model is
+checked separately with `--check-solver` on your PC.

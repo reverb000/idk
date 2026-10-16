@@ -14,6 +14,7 @@ from .credentials import api_key, save_api_key
 from .runtime import ClickGate, InstanceLock, enable_dpi_awareness, find_tesseract, state_directory
 from .output import AnswerOutput
 from .taskbar import WindowsTaskbarDisplay
+from .taskbar_input import taskbar_point
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = logging.getLogger("question_volume")
@@ -69,7 +70,7 @@ def process_capture(image, cursor, reader, solver, output, token):
     if not output.current(token):
         return
     if output.publish(token, text):
-        LOG.info("Answer displayed on the taskbar (%s).", answer.kind)
+        LOG.info("Answer ready for the taskbar display (%s).", answer.kind)
 
 
 def listen(settings, reader, solver, display, state):
@@ -139,6 +140,11 @@ def listen(settings, reader, solver, display, state):
             gate.release()
 
     def event_filter(message, data):
+        if message in (0x0204, 0x0205, 0x0206):
+            # Returning False skips this listener's callback but preserves the
+            # native event: pinned apps, Search, widgets, and tray menus still work.
+            if taskbar_point(data.pt.x, data.pt.y) is not False:
+                return False
         # Suppress only right-button events; left clicks, scrolling, and keyboard work normally.
         if settings.suppress_right_click and message in (0x0204, 0x0205, 0x0206):
             if message == 0x0204:
@@ -152,7 +158,7 @@ def listen(settings, reader, solver, display, state):
     capture_thread.start()
     listener = mouse.Listener(on_click=on_click, win32_event_filter=event_filter)
     listener.start()
-    LOG.info("Listening for right-clicks; answers appear in the taskbar button.")
+    LOG.info("Listening for right-clicks; answers use unoccupied taskbar space.")
     try:
         while not stop.wait(0.2):
             if stop_file.exists():
@@ -181,7 +187,7 @@ def check(settings):
     backend_check = "Ollama server and downloaded model" if settings.backend == "ollama" else "API-key presence"
     print(f"Local checks passed: OCR engine, language, {backend_check}, and Windows taskbar APIs.")
     print("Run --check-solver to test one answer, then try a real right-click.")
-    print("For visible answer text, set Windows Taskbar behaviors: Combine taskbar buttons and hide labels = Never.")
+    print("The display uses unoccupied taskbar space and hides if no safe space is available.")
 
 
 def check_solver(settings):

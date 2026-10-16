@@ -18,7 +18,7 @@ from question_volume.solver import SolverError
 
 
 class MouseHookAdapterTests(unittest.TestCase):
-    def run_listener(self, suppress_right_click, second_click=False, queue_size=5, unexpected_stop=False):
+    def run_listener(self, suppress_right_click, second_click=False, queue_size=5, unexpected_stop=False, taskbar_hit=False):
         click_queue, capture_queue = queue.Queue(queue_size), queue.Queue(5)
         right, left = object(), object()
         suppressed = []
@@ -97,6 +97,7 @@ class MouseHookAdapterTests(unittest.TestCase):
                 Button=SimpleNamespace(right=right, left=left), Listener=FakeListener,
             )
             stack.enter_context(patch.dict("sys.modules", {"pynput": pynput}))
+            stack.enter_context(patch.object(app, "taskbar_point", return_value=taskbar_hit))
             stack.enter_context(patch.object(app.queue, "Queue", side_effect=[click_queue, capture_queue]))
             threads = stack.enter_context(patch.object(app.threading, "Thread"))
             stack.enter_context(patch.object(app.threading, "Event", FakeEvent))
@@ -134,6 +135,15 @@ class MouseHookAdapterTests(unittest.TestCase):
         self.assertEqual(suppressed, [])
         self.assertEqual(forwarded, [0x0204, 0x0205, 0x0206, 0x0201, 0x020A])
         display.clear.assert_called_once_with("…")
+
+    def test_taskbar_clicks_and_uncertain_hits_are_not_suppressed_or_analyzed(self):
+        for hit in (True, None):
+            with self.subTest(hit=hit):
+                clicks, captures, suppressed, _, display, _ = self.run_listener(True, taskbar_hit=hit)
+                self.assertTrue(clicks.empty())
+                self.assertTrue(captures.empty())
+                self.assertEqual(suppressed, [])
+                display.clear.assert_not_called()
 
     def test_each_new_click_invalidates_the_previous_queued_capture(self):
         clicks, captures, _, _, display, output = self.run_listener(True, second_click=True)

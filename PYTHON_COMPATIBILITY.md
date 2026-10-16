@@ -12,15 +12,22 @@ interpreter checks also exercised CPython 3.15.0, but they preceded the taskbar
 feature and do not establish native Windows compatibility for this edition.
 
 The application no longer uses an audio-control package. `comtypes` remains
-for creating Windows shortcuts during installation, so earlier warnings about
-that package on Python 3.15 are not evidence about taskbar display behavior.
+for creating Windows shortcuts during installation and reading taskbar
+controls through Windows UI Automation. Earlier warnings about that package
+on Python 3.15 are not evidence about taskbar display behavior.
 Use the recommended 3.14 build unless you are testing another interpreter.
 
 Automated checks run in Linux and exercise Windows adapters with mocks. Native
-Windows global mouse hooks, taskbar captions, taskbar label settings, focus
-behavior, and Credential Manager still require validation on a Windows
-desktop. Package resolution and mocked tests do not establish native runtime
-compatibility. The real Ollama model was not run in those checks; use
+Windows global mouse hooks, native UI Automation, empty-gap overlay placement
+and scrolling, click-through and focus behavior, and Credential Manager still
+require validation on a Windows desktop. The display is a standalone overlay
+with no taskbar app button and needs no taskbar label or grouping changes.
+**Automatically hide the taskbar** must be off to display the overlay; enabling
+it hides the overlay even while the taskbar is visible on hover. The program
+does not change this setting automatically. Synthetic
+geometry checks exercise placement decisions, but package resolution and
+mocked tests do not establish native runtime compatibility. The real Ollama
+model was not run in those checks; use
 `--check-solver` to test it on your PC.
 
 Release and package sources:

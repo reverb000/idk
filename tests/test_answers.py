@@ -2,6 +2,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+import string
 from unittest.mock import Mock, patch
 
 from question_volume.answers import answer_schema, parse_answer, taskbar_text
@@ -19,6 +20,25 @@ class AnswerFormattingTests(unittest.TestCase):
 
     def test_multiselect_sorted_by_visible_choice_order(self):
         self.assertEqual(taskbar_text(Answer("multi_select", ("F", "A", "D")), self.question), "1,4,6")
+
+    def test_every_letter_a_through_z_maps_to_its_number(self):
+        question = Question("Which choice is correct?", tuple(Choice(label, label) for label in string.ascii_uppercase))
+        for number, label in enumerate(string.ascii_uppercase, 1):
+            with self.subTest(label=label):
+                answer = parse_answer({"kind": "single_choice", "labels": [label], "text": None}, question)
+                self.assertEqual(taskbar_text(answer, question), str(number))
+        self.assertEqual(answer_schema(question)["properties"]["labels"]["items"]["enum"], list(string.ascii_uppercase))
+
+    def test_multiselect_works_for_arbitrary_letters_and_all_letters(self):
+        question = Question("Select all correct choices.", tuple(Choice(label, label) for label in string.ascii_uppercase))
+        for labels, expected in ((("Z", "B", "E"), "2,5,26"), (("Y", "J", "M"), "10,13,25"),
+                                 (("X", "A", "K", "Q"), "1,11,17,24")):
+            with self.subTest(labels=labels):
+                answer = parse_answer({"kind": "multi_select", "labels": list(labels), "text": None}, question)
+                self.assertEqual(taskbar_text(answer, question), expected)
+        all_labels = tuple(reversed(string.ascii_uppercase))
+        answer = parse_answer({"kind": "multi_select", "labels": list(all_labels), "text": None}, question)
+        self.assertEqual(taskbar_text(answer, question), "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26")
 
     def test_fill_text_preserves_case_punctuation_and_unicode(self):
         question = Question("Fill in: ___", (), "fill_blank")
